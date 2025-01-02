@@ -2,6 +2,9 @@ import cv2
 import streamlit as st
 import mediapipe as mp
 import numpy as np
+import time
+import plotly.express as px
+import pandas as pd
 from scipy.spatial import distance
 
 # Initialize MediaPipe Face Mesh
@@ -121,23 +124,39 @@ st.sidebar.markdown("---")
 st.sidebar.write("Adjust additional settings below:")
 brightness = st.sidebar.slider("Brightness", 0, 100, 50)
 contrast = st.sidebar.slider("Contrast", 0, 100, 50)
+zoom_level = st.sidebar.slider("Zoom Level", 1, 10, 1)
 st.sidebar.markdown("---")
 st.sidebar.write("Tested with Digital 10X Zoom Megapixel WebCam")
+st.sidebar.markdown("---")
 
+
+data_log = {"Timestamp": [], "Pupil Size": []}
 FRAME_WINDOW = st.empty()
-camera = cv2.VideoCapture(0)
+camera = None
+chart_placeholder = st.empty()
 
 # Button to start/stop webcam
 if 'run' not in st.session_state:
     st.session_state['run'] = False
+
+if 'data_shown' not in st.session_state:
+    st.session_state['data_shown'] = False
+
+if 'data_log' not in st.session_state:
+    st.session_state['data_log'] = {"Timestamp": [], "Pupil Size": []}  # Initialize the data log
+
 
 start_button = st.button("Start Webcam")
 stop_button = st.button("Stop Webcam")
 
 if start_button:
     st.session_state['run'] = True
+    st.session_state['data_shown'] = False
+    camera = cv2.VideoCapture(0)
 if stop_button:
     st.session_state['run'] = False
+    if camera is not None and camera.isOpened():
+        camera.release()  # Release camera when stopping
 
 if st.session_state['run']:
     st.markdown(
@@ -158,8 +177,19 @@ if st.session_state['run']:
         # Adjust brightness and contrast
         frame = cv2.convertScaleAbs(frame, alpha=contrast/50, beta=brightness-50)
 
+        # Apply zoom
+        h, w, _ = frame.shape
+        center_x, center_y = w // 2, h // 2
+        radius_x, radius_y = w // (2 * zoom_level), h // (2 * zoom_level)
+        cropped_frame = frame[center_y - radius_y:center_y + radius_y, center_x - radius_x:center_x + radius_x]
+        frame = cv2.resize(cropped_frame, (w, h))
+
         # Apply pupil detection logic
         processed_frame, pupil_size = detect_pupil(frame)
+
+        # Log data
+        st.session_state['data_log']["Timestamp"].append(time.strftime("%Y-%m-%d %H:%M:%S"))
+        st.session_state['data_log']["Pupil Size"].append(pupil_size)
 
         # Add a border around the webcam display
         border_color = (255, 0, 0)  # Red border
@@ -178,9 +208,27 @@ if st.session_state['run']:
         frame_rgb = cv2.cvtColor(frame_with_border, cv2.COLOR_BGR2RGB)
 
         # Display the frame and pupil size
-        FRAME_WINDOW.image(frame_rgb, caption="Webcam Feed", use_container_width=True)
+        FRAME_WINDOW.image(frame_rgb, caption="Webcam Feed", use_column_width=True)
 
-    camera.release()
-else:
+
+if not st.session_state['run']:
     st.info("Webcam is turned off. Use the buttons above to control it.")
-    camera.release()
+
+    # Display data and allow download only after the webcam stops
+    if not st.session_state['data_shown']:
+        if st.session_state['data_log']["Timestamp"]:  # Check if data exists
+            st.success("Data captured. Displaying chart and enabling download.")
+            df = pd.DataFrame(st.session_state['data_log'])
+            fig = px.line(df, x="Timestamp", y="Pupil Size", title="Pupil Size Over Time")
+            st.plotly_chart(fig)
+
+            csv_data = df.to_csv(index=False)
+            st.download_button(
+                label="Download Data Log",
+                data=csv_data,
+                file_name="pupil_detection_log.csv",
+                mime="text/csv",
+            )
+        else:
+            st.warning("No data logged during the session.")
+        st.session_state['data_shown'] = True
