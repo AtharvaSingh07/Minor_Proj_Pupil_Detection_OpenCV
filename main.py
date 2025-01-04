@@ -13,7 +13,7 @@ face_mesh = mp_face_mesh.FaceMesh(
     static_image_mode=False,
     max_num_faces=1,
     refine_landmarks=True,
-    min_detection_confidence=0.7,
+    min_detection_confidence=0.7
 )
 
 # Constants for thresholds
@@ -130,6 +130,19 @@ st.sidebar.write("Tested with Digital 10X Zoom Megapixel WebCam")
 st.sidebar.markdown("---")
 
 
+uploaded_file = st.file_uploader("Upload an audio file", type=["mp3", "wav", "ogg"])
+
+# Check if a file is uploaded
+if uploaded_file is not None:
+    # Display the uploaded file's details
+    st.write("Uploaded file:", uploaded_file.name)
+
+    # Play the uploaded audio file
+    st.audio(uploaded_file, format="audio/mp3")
+else:
+    st.write("Upload a song to play it and detect any significant pupil size changes.")
+
+
 data_log = {"Timestamp": [], "Pupil Size": []}
 FRAME_WINDOW = st.empty()
 camera = None
@@ -150,9 +163,11 @@ start_button = st.button("Start Webcam")
 stop_button = st.button("Stop Webcam")
 
 if start_button:
-    st.session_state['run'] = True
-    st.session_state['data_shown'] = False
-    camera = cv2.VideoCapture(0)
+    with st.spinner("Starting Webcam..."):
+        st.session_state['run'] = True
+        st.session_state['data_shown'] = False
+        camera = cv2.VideoCapture(0)
+        time.sleep(2)
 if stop_button:
     st.session_state['run'] = False
     if camera is not None and camera.isOpened():
@@ -168,7 +183,7 @@ if st.session_state['run']:
         unsafe_allow_html=True,
     )
 
-    while st.session_state['run']:
+    while st.session_state['run'] and camera is not None and camera.isOpened():
         ret, frame = camera.read()
         if not ret:
             st.warning("Unable to access the webcam. Please check your device.")
@@ -218,9 +233,10 @@ if not st.session_state['run']:
     if not st.session_state['data_shown']:
         if st.session_state['data_log']["Timestamp"]:  # Check if data exists
             st.success("Data captured. Displaying chart and enabling download.")
-            df = pd.DataFrame(st.session_state['data_log'])
-            fig = px.line(df, x="Timestamp", y="Pupil Size", title="Pupil Size Over Time")
-            st.plotly_chart(fig)
+            with st.spinner("Generating data graph..."):
+                df = pd.DataFrame(st.session_state['data_log'])
+                fig = px.line(df, x="Timestamp", y="Pupil Size", title="Pupil Size Over Time")
+                st.plotly_chart(fig)
 
             csv_data = df.to_csv(index=False)
             st.download_button(
